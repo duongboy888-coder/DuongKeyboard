@@ -116,6 +116,21 @@ public class MainActivity extends Activity {
         LinearLayout fb = card();
         fb.addView(switchRow("Rung", "Rung nhẹ mỗi lần chạm phím", Prefs.VIBRATE, true));
         fb.addView(divider());
+        fb.addView(sliderRow("Độ mạnh rung", "ms", Prefs.VIB_MS, Prefs.DEF_VIB, 10, 80));
+        TextView testVib = text("Thử rung", 14, 0xFFFFFFFF, true);
+        testVib.setGravity(Gravity.CENTER);
+        testVib.setPadding(dp(18), dp(10), dp(18), dp(10));
+        testVib.setBackground(round(PRIMARY, dp(20)));
+        testVib.setOnClickListener(new View.OnClickListener() {
+            @Override public void onClick(View v) {
+                Haptics.vibrate(MainActivity.this, v, prefs.getInt(Prefs.VIB_MS, Prefs.DEF_VIB));
+            }
+        });
+        LinearLayout.LayoutParams tvLp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        tvLp.setMargins(0, dp(4), 0, dp(12));
+        fb.addView(testVib, tvLp);
+        fb.addView(divider());
         fb.addView(switchRow("Âm thanh", "Phát tiếng click khi gõ", Prefs.SOUND, false));
         content.addView(fb);
 
@@ -124,8 +139,8 @@ public class MainActivity extends Activity {
         LinearLayout tips = card();
         tips.addView(tip("␣", "Giữ phím cách: đổi Tiếng Việt ⇄ English"));
         tips.addView(tip("☺", "Nút góc phải hàng số: mở bảng emoji"));
-        tips.addView(tip("⚙", "Giữ nút emoji: mở trang cài đặt này"));
-        tips.addView(tip(",", "Giữ dấu phẩy: chuyển sang bàn phím khác"));
+        tips.addView(tip("⌨", "Giữ nút emoji: chuyển sang bàn phím khác"));
+        tips.addView(tip(",", "Giữ dấu phẩy: mở trang cài đặt này"));
         tips.addView(tip("⇧", "Chạm đúp Shift: bật Caps Lock"));
         tips.addView(tip("⌫", "Giữ nút xoá: xoá liên tục"));
         content.addView(tips);
@@ -147,7 +162,7 @@ public class MainActivity extends Activity {
         test.addView(et, etLp);
         content.addView(test);
 
-        TextView footer = text("DuongKB v1.2 · Bàn phím Telex mã nguồn mở", 12, SUB, false);
+        TextView footer = text("DuongKB v1.3 · Bàn phím Telex mã nguồn mở", 12, SUB, false);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(18), 0, 0);
         content.addView(footer);
@@ -391,22 +406,45 @@ public class MainActivity extends Activity {
                 {"1", "2", "3", "4", "5", "6", "7", "☺"},
                 {"q", "w", "e", "r", "t", "y", "u", "i"},
                 {"a", "s", "d", "f", "g", "h", "j", "k"},
-                {"⇧", "SPACE", "↵"}
+                {"SHIFT", "?123", "SPACE", "ENTER"}
         };
         for (int ri = 0; ri < rows.length; ri++) {
             LinearLayout row = horizontal();
             for (String k : rows[ri]) {
-                boolean special = k.equals("⇧") || k.equals("☺");
-                boolean enter = k.equals("↵");
+                boolean special = k.equals("SHIFT") || k.equals("☺") || k.equals("?123");
+                boolean enter = k.equals("ENTER");
                 boolean space = k.equals("SPACE");
-                String lbl = space ? (t.pattern == Theme.PATTERN_PAW ? "🐾 Tiếng Việt" : "Tiếng Việt") : k;
-                TextView key = text(lbl, ri == 0 ? 13 : (space ? 11 : textSize * 0.7f), enter ? 0xFFFFFFFF : t.text, false);
+                boolean paw = t.pattern == Theme.PATTERN_PAW;
+                String lbl = space ? (paw ? "🐾 Tiếng Việt" : "Tiếng Việt") : k;
+                KeyView key = new KeyView(this);
+                key.setText(lbl);
+                key.setTextSize(ri == 0 ? 13 : (space || k.equals("?123") ? 11 : textSize * 0.7f));
+                key.setTextColor(t.text);
                 key.setGravity(Gravity.CENTER);
                 key.setSingleLine(true);
+                int icon = k.equals("☺") ? R.drawable.ic_emoji : KeyView.iconFor(t, k, 0, -1);
+                if (icon != 0) {
+                    android.graphics.drawable.Drawable d = getResources().getDrawable(icon, null).mutate();
+                    d.setTint(enter ? 0xFFFFFFFF : t.text);
+                    key.setText("");
+                    key.setIcon(d, dp(ri == 0 ? 15 : 17));
+                }
+                if (k.equals("?123")) {
+                    key.setTextColor(t.accent);
+                    key.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+                    if (paw) {
+                        android.graphics.drawable.Drawable pd = getResources().getDrawable(R.drawable.ic_paw, null).mutate();
+                        pd.setTint(t.accent);
+                        key.setText("");
+                        key.setIconLabel("123");
+                        key.setIcon(pd, dp(11));
+                    }
+                }
                 GradientDrawable top = round(enter ? t.accent : (special ? t.special : t.key), dp(radius * 0.8f));
                 key.setBackground(t.keyBackground(top, dp(radius * 0.8f), shadow, dp(1.2f)));
+                if (shadow) key.setPadding(0, 0, 0, dp(1.2f));
                 LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT,
-                        space ? 5f : (enter || k.equals("⇧") ? 1.5f : 1f));
+                        space ? 4.5f : (enter || k.equals("SHIFT") || k.equals("?123") ? 1.5f : 1f));
                 lp.setMargins(dp(2), dp(2.5f), dp(2), dp(2.5f));
                 row.addView(key, lp);
             }

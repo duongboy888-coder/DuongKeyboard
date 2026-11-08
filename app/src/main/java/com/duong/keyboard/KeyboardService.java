@@ -2,15 +2,14 @@ package com.duong.keyboard;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.inputmethodservice.InputMethodService;
 import android.media.AudioManager;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.util.TypedValue;
@@ -66,7 +65,7 @@ public class KeyboardService extends InputMethodService {
     private Theme theme;
     private final Telex telex = new Telex();
     private boolean telexOn, telexAllowed, vibrateOn, soundOn, numberRow, shadowOn;
-    private int keyHeightDp, radiusDp, textSizeSp;
+    private int keyHeightDp, radiusDp, textSizeSp, vibrateMs;
 
     private LinearLayout root;
     private TextView spaceKey;
@@ -75,7 +74,6 @@ public class KeyboardService extends InputMethodService {
     private long lastShiftTap = 0;
     private int emojiCategory = 1;
 
-    private Vibrator vibrator;
     private AudioManager audio;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private boolean longPressFired = false;
@@ -94,7 +92,6 @@ public class KeyboardService extends InputMethodService {
     public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(Prefs.FILE, MODE_PRIVATE);
-        vibrator = (Vibrator) getSystemService(VIBRATOR_SERVICE);
         audio = (AudioManager) getSystemService(AUDIO_SERVICE);
         loadPrefs();
     }
@@ -104,6 +101,7 @@ public class KeyboardService extends InputMethodService {
         telex.setModernStyle(prefs.getBoolean(Prefs.MODERN, false));
         vibrateOn = prefs.getBoolean(Prefs.VIBRATE, true);
         soundOn = prefs.getBoolean(Prefs.SOUND, false);
+        vibrateMs = prefs.getInt(Prefs.VIB_MS, Prefs.DEF_VIB);
         numberRow = prefs.getBoolean(Prefs.NUMBER_ROW, true);
         keyHeightDp = prefs.getInt(Prefs.KEY_HEIGHT, Prefs.DEF_HEIGHT);
         textSizeSp = prefs.getInt(Prefs.TEXT_SIZE, Prefs.DEF_TEXT);
@@ -232,7 +230,7 @@ public class KeyboardService extends InputMethodService {
     }
 
     private View makeKey(final String key, boolean numRow, boolean rowHasEmoji) {
-        final TextView tv = new TextView(this);
+        final KeyView tv = new KeyView(this);
         tv.setGravity(Gravity.CENTER);
         tv.setText(label(key));
         tv.setSingleLine(true);
@@ -248,16 +246,40 @@ public class KeyboardService extends InputMethodService {
 
         int color = isSpecial(key) ? theme.special : theme.key;
         int textColor = theme.text;
-        if (key.equals("SHIFT") && shift == 1) color = theme.pressed;
-        if ((key.equals("SHIFT") && shift == 2) || key.equals("ENTER")) {
+        int iconColor = theme.text;
+        if (key.equals("SHIFT") && shift == 1) iconColor = theme.accent;       // hoa 1 lần: icon đổi màu
+        if ((key.equals("SHIFT") && shift == 2) || key.equals("ENTER")) {       // caps lock / enter: nền nổi bật
             color = theme.accent;
             textColor = 0xFFFFFFFF;
+            iconColor = 0xFFFFFFFF;
         }
         tv.setTextColor(textColor);
         if (key.equals("SPACE")) {
             spaceKey = tv;
             tv.setAlpha(0.8f);
         }
+
+        // Icon theo chủ đề (Enter, Shift/Caps, Xoá, Emoji)
+        int res = KeyView.iconFor(theme, key, shift, enterAction());
+        if (res != 0) {
+            Drawable d = getResources().getDrawable(res, null).mutate();
+            d.setTint(iconColor);
+            tv.setText("");
+            tv.setIcon(d, dp(numRow ? 20 : (key.equals("DEL") ? 24 : 23)));
+        }
+        // Phím chuyển trang (?123 / ABC / =\<) dùng màu nhấn của chủ đề
+        if (key.equals("?123") || key.equals("ABC") || key.equals("=\\<")) {
+            tv.setTextColor(theme.accent);
+            tv.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
+            if (theme.pattern == Theme.PATTERN_PAW && !key.equals("=\\<")) {
+                Drawable paw = getResources().getDrawable(R.drawable.ic_paw, null).mutate();
+                paw.setTint(theme.accent);
+                tv.setText("");
+                tv.setIconLabel(key.equals("?123") ? "123" : "ABC");
+                tv.setIcon(paw, dp(15));
+            }
+        }
+        if (shadowOn) tv.setPadding(0, 0, 0, dp(1.5f));
 
         final int normalColor = color;
         final GradientDrawable bg = new GradientDrawable();
@@ -277,7 +299,7 @@ public class KeyboardService extends InputMethodService {
                 switch (e.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         bg.setColor(theme.pressed);
-                        feedback(key);
+                        feedback(v, key);
                         longPressFired = false;
                         if (key.equals("DEL")) {
                             deleteOne();
@@ -285,9 +307,9 @@ public class KeyboardService extends InputMethodService {
                         } else if (key.equals("SPACE")) {
                             schedule(new Runnable() { public void run() { toggleLanguage(); } });
                         } else if (key.equals(",")) {
-                            schedule(new Runnable() { public void run() { showPicker(); } });
-                        } else if (key.equals("EMOJI")) {
                             schedule(new Runnable() { public void run() { openSettings(); } });
+                        } else if (key.equals("EMOJI")) {
+                            schedule(new Runnable() { public void run() { showPicker(); } });
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
@@ -321,30 +343,22 @@ public class KeyboardService extends InputMethodService {
 
     private String label(String k) {
         switch (k) {
-            case "SHIFT": return shift == 2 ? "⇪" : "⇧";
-            case "DEL":   return "⌫";
-            case "EMOJI": return "☺";
+            case "SHIFT": case "DEL": case "EMOJI": case "ENTER": return "";
             case "SPACE": {
                 String s = useTelex() ? "Tiếng Việt" : "English";
                 return theme.pattern == Theme.PATTERN_PAW ? "🐾 " + s : s;
             }
-            case "ENTER": return enterLabel();
             default:
                 return (mode == MODE_LETTERS && shift > 0) ? k.toUpperCase() : k;
         }
     }
 
-    private String enterLabel() {
+    /** Hành động của phím Enter trong ô nhập hiện tại, -1 = xuống dòng. */
+    private int enterAction() {
         EditorInfo ei = getCurrentInputEditorInfo();
-        if (ei == null || (ei.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0) return "↵";
-        switch (ei.imeOptions & EditorInfo.IME_MASK_ACTION) {
-            case EditorInfo.IME_ACTION_SEARCH: return "⌕";
-            case EditorInfo.IME_ACTION_SEND:   return "➤";
-            case EditorInfo.IME_ACTION_GO:     return "→";
-            case EditorInfo.IME_ACTION_NEXT:   return "⇥";
-            case EditorInfo.IME_ACTION_DONE:   return "✓";
-            default: return "↵";
-        }
+        if (ei == null || (ei.imeOptions & EditorInfo.IME_FLAG_NO_ENTER_ACTION) != 0
+                || (ei.inputType & InputType.TYPE_TEXT_FLAG_MULTI_LINE) != 0) return -1;
+        return ei.imeOptions & EditorInfo.IME_MASK_ACTION;
     }
 
     // ================= Bảng emoji =================
@@ -393,7 +407,7 @@ public class KeyboardService extends InputMethodService {
             });
             grid.setOnItemClickListener(new AdapterView.OnItemClickListener() {
                 @Override public void onItemClick(AdapterView<?> parent, View v, int pos, long id) {
-                    feedback("EMOJI");
+                    feedback(v, "EMOJI");
                     InputConnection ic = getCurrentInputConnection();
                     if (ic != null) ic.commitText(items[pos], 1);
                     addRecent(items[pos]);
@@ -427,7 +441,7 @@ public class KeyboardService extends InputMethodService {
             }
             t.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    feedback("");
+                    feedback(v, "");
                     emojiCategory = idx;
                     render();
                 }
@@ -563,7 +577,7 @@ public class KeyboardService extends InputMethodService {
         telexOn = !telexOn;
         prefs.edit().putBoolean(Prefs.TELEX, telexOn).apply();
         if (spaceKey != null) spaceKey.setText(label("SPACE"));
-        feedback("");
+        feedback(spaceKey, "");
     }
 
     private void openSettings() {
@@ -610,15 +624,8 @@ public class KeyboardService extends InputMethodService {
 
     // ================= Rung & âm thanh =================
 
-    @SuppressWarnings("deprecation")
-    private void feedback(String key) {
-        if (vibrateOn && vibrator != null && vibrator.hasVibrator()) {
-            if (Build.VERSION.SDK_INT >= 26) {
-                vibrator.vibrate(VibrationEffect.createOneShot(15, VibrationEffect.DEFAULT_AMPLITUDE));
-            } else {
-                vibrator.vibrate(15);
-            }
-        }
+    private void feedback(View v, String key) {
+        if (vibrateOn) Haptics.vibrate(this, v, vibrateMs);
         if (soundOn && audio != null) {
             int fx = AudioManager.FX_KEYPRESS_STANDARD;
             if ("DEL".equals(key)) fx = AudioManager.FX_KEYPRESS_DELETE;

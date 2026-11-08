@@ -14,6 +14,9 @@ final class Prefs {
     static final String TEXT_SIZE = "key_text_size";
     static final String SHADOW = "key_shadow";
     static final String RECENT = "recent_emoji";
+    static final String VIB_MS = "vibrate_ms";
+
+    static final int DEF_VIB = 30;      // ms
 
     static final int DEF_HEIGHT = 58;   // dp
     static final int DEF_TEXT = 24;     // sp
