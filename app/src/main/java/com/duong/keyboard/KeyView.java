@@ -21,6 +21,8 @@ public class KeyView extends TextView {
     public void setIcon(Drawable d, int sizePx) {
         icon = d;
         iconSize = sizePx;
+        setHorizontallyScrolling(false);
+        scrollTo(0, 0);
         invalidate();
     }
 
@@ -34,6 +36,15 @@ public class KeyView extends TextView {
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
         if (icon == null) return;
+        // TextView 1 dòng + căn giữa sẽ tự cuộn ngang (scrollX rất lớn),
+        // canvas bị dịch theo -> phải dịch ngược lại, nếu không icon bị vẽ ra ngoài phím.
+        canvas.save();
+        canvas.translate(getScrollX(), getScrollY());
+        drawIcon(canvas);
+        canvas.restore();
+    }
+
+    private void drawIcon(Canvas canvas) {
         float cy = getPaddingTop() + (getHeight() - getPaddingTop() - getPaddingBottom()) / 2f;
         float cx = getWidth() / 2f;
         float half = iconSize / 2f;
