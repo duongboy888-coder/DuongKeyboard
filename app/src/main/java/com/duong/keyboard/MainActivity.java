@@ -30,12 +30,12 @@ public class MainActivity extends Activity {
     private static final int CHIP = 0xFFEEF1FF;
     private static final int DIV = 0xFFEEF0F4;
 
-    private static final String[] THEMES = {"dark", "light", "ocean", "sakura"};
-    private static final String[] THEME_NAMES = {"Tối", "Sáng", "Đại dương", "Anh đào"};
 
     private SharedPreferences prefs;
     private TextView dot1, dot2, sub1, sub2, btn1, btn2;
-    private LinearLayout themeRow;
+    private LinearLayout themeGrid, previewBox;
+    private SeekBar radiusBar;
+    private TextView radiusLabel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -78,22 +78,38 @@ public class MainActivity extends Activity {
         vi.addView(telexGuide());
         content.addView(vi);
 
-        // ---- Giao diện ----
-        content.addView(sectionTitle("Giao diện"));
+        // ---- Chủ đề ----
+        content.addView(sectionTitle("Chủ đề"));
         LinearLayout look = card();
-        TextView themeLabel = text("Chủ đề", 16, TEXT, true);
-        themeLabel.setPadding(0, dp(8), 0, dp(10));
-        look.addView(themeLabel);
-        themeRow = new LinearLayout(this);
-        themeRow.setOrientation(LinearLayout.HORIZONTAL);
-        look.addView(themeRow);
-        buildThemes();
-        look.addView(spaceView(dp(12)));
+        TextView pvLabel = text("Xem trước", 16, TEXT, true);
+        pvLabel.setPadding(0, dp(10), 0, dp(8));
+        look.addView(pvLabel);
+        previewBox = vertical();
+        look.addView(previewBox, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        TextView gridLabel = text("Chọn chủ đề", 16, TEXT, true);
+        gridLabel.setPadding(0, dp(16), 0, dp(4));
+        look.addView(gridLabel);
+        themeGrid = vertical();
+        look.addView(themeGrid);
+        look.addView(spaceView(dp(10)));
         look.addView(divider());
-        look.addView(switchRow("Hàng số", "Hiện hàng số 1–0 phía trên bàn phím", Prefs.NUMBER_ROW, true));
+        look.addView(radiusRow());
         look.addView(divider());
-        look.addView(heightRow());
+        look.addView(sliderRow("Cỡ chữ phím", "sp", Prefs.TEXT_SIZE, Prefs.DEF_TEXT, 16, 32));
+        look.addView(divider());
+        look.addView(switchRow("Bóng đổ dưới phím", "Phím nổi lên như phím thật", Prefs.SHADOW, true));
         content.addView(look);
+        buildThemes();
+        buildPreview();
+
+        // ---- Bố cục ----
+        content.addView(sectionTitle("Bố cục"));
+        LinearLayout layout = card();
+        layout.addView(switchRow("Hàng số", "Hàng 1–0 phía trên, có nút emoji ở góc phải", Prefs.NUMBER_ROW, true));
+        layout.addView(divider());
+        layout.addView(sliderRow("Chiều cao phím chữ", "dp", Prefs.KEY_HEIGHT, Prefs.DEF_HEIGHT, 44, 72));
+        content.addView(layout);
 
         // ---- Phản hồi ----
         content.addView(sectionTitle("Phản hồi khi gõ"));
@@ -107,7 +123,8 @@ public class MainActivity extends Activity {
         content.addView(sectionTitle("Mẹo nhanh"));
         LinearLayout tips = card();
         tips.addView(tip("␣", "Giữ phím cách: đổi Tiếng Việt ⇄ English"));
-        tips.addView(tip("☺", "Nút cạnh ?123: mở bảng emoji"));
+        tips.addView(tip("☺", "Nút góc phải hàng số: mở bảng emoji"));
+        tips.addView(tip("⚙", "Giữ nút emoji: mở trang cài đặt này"));
         tips.addView(tip(",", "Giữ dấu phẩy: chuyển sang bàn phím khác"));
         tips.addView(tip("⇧", "Chạm đúp Shift: bật Caps Lock"));
         tips.addView(tip("⌫", "Giữ nút xoá: xoá liên tục"));
@@ -130,7 +147,7 @@ public class MainActivity extends Activity {
         test.addView(et, etLp);
         content.addView(test);
 
-        TextView footer = text("DuongKB v1.1 · Bàn phím Telex mã nguồn mở", 12, SUB, false);
+        TextView footer = text("DuongKB v1.2 · Bàn phím Telex mã nguồn mở", 12, SUB, false);
         footer.setGravity(Gravity.CENTER);
         footer.setPadding(0, dp(18), 0, 0);
         content.addView(footer);
@@ -253,6 +270,7 @@ public class MainActivity extends Activity {
         sw.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
             @Override public void onCheckedChanged(CompoundButton b, boolean checked) {
                 prefs.edit().putBoolean(key, checked).apply();
+                buildPreview();
             }
         });
         row.addView(sw);
@@ -292,26 +310,38 @@ public class MainActivity extends Activity {
     }
 
     private void buildThemes() {
-        themeRow.removeAllViews();
+        themeGrid.removeAllViews();
         String cur = prefs.getString(Prefs.THEME, "dark");
-        for (int i = 0; i < THEMES.length; i++) {
-            final String name = THEMES[i];
-            boolean selected = name.equals(cur);
-            KeyboardService.Theme t = KeyboardService.Theme.of(name);
+        LinearLayout row = null;
+        for (int i = 0; i < Theme.IDS.length; i++) {
+            if (i % 4 == 0) {
+                row = horizontal();
+                row.setPadding(0, dp(8), 0, 0);
+                themeGrid.addView(row);
+            }
+            final String id = Theme.IDS[i];
+            boolean selected = id.equals(cur);
+            Theme t = Theme.of(id);
 
             LinearLayout item = vertical();
             item.setGravity(Gravity.CENTER_HORIZONTAL);
 
             LinearLayout preview = vertical();
             preview.setPadding(dp(6), dp(6), dp(6), dp(6));
-            GradientDrawable bg = round(t.bg, dp(12));
-            bg.setStroke(selected ? dp(3) : dp(1), selected ? PRIMARY : DIV);
-            preview.setBackground(bg);
+            GradientDrawable frame = round(t.bg, dp(12));
+            frame.setStroke(selected ? dp(3) : dp(1), selected ? PRIMARY : DIV);
+            if (t.pattern == Theme.PATTERN_PAW) {
+                preview.setBackground(new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{
+                        frame, new PawDrawable(t.patternColor, dp(8), dp(24))}));
+            } else {
+                preview.setBackground(frame);
+            }
+            preview.setClipToOutline(true);
             for (int r = 0; r < 2; r++) {
                 LinearLayout kr = horizontal();
                 for (int k = 0; k < 3; k++) {
                     View key = new View(this);
-                    key.setBackground(round(r == 1 && k == 2 ? t.accent : t.key, dp(3)));
+                    key.setBackground(round(r == 1 && k == 2 ? t.accent : t.key, dp(Math.min(t.radius, 8) / 2f)));
                     LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f);
                     lp.setMargins(dp(2), dp(2), dp(2), dp(2));
                     kr.addView(key, lp);
@@ -320,37 +350,127 @@ public class MainActivity extends Activity {
             }
             item.addView(preview, new LinearLayout.LayoutParams(dp(68), dp(52)));
 
-            TextView label = text(THEME_NAMES[i], 12, selected ? PRIMARY : SUB, selected);
+            String name = Theme.LABELS[i] + (t.pattern == Theme.PATTERN_PAW ? " 🐾" : "");
+            TextView label = text(name, 12, selected ? PRIMARY : SUB, selected);
             label.setPadding(0, dp(6), 0, 0);
             item.addView(label);
 
             item.setOnClickListener(new View.OnClickListener() {
                 @Override public void onClick(View v) {
-                    prefs.edit().putString(Prefs.THEME, name).apply();
+                    // đổi chủ đề -> bo góc trở về mặc định của chủ đề
+                    prefs.edit().putString(Prefs.THEME, id).putInt(Prefs.RADIUS, -1).apply();
                     buildThemes();
+                    syncRadius();
+                    buildPreview();
                 }
             });
-            themeRow.addView(item, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+            row.addView(item, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
         }
     }
 
-    private View heightRow() {
+    /** Bàn phím thu nhỏ hiển thị đúng chủ đề, bo góc, cỡ chữ, bóng đang chọn. */
+    private void buildPreview() {
+        if (previewBox == null) return;
+        previewBox.removeAllViews();
+        Theme t = Theme.of(prefs.getString(Prefs.THEME, "dark"));
+        int r = prefs.getInt(Prefs.RADIUS, -1);
+        int radius = r < 0 ? t.radius : r;
+        int textSize = prefs.getInt(Prefs.TEXT_SIZE, Prefs.DEF_TEXT);
+        boolean shadow = prefs.getBoolean(Prefs.SHADOW, true);
+
+        LinearLayout kb = vertical();
+        kb.setPadding(dp(3), dp(5), dp(3), dp(5));
+        GradientDrawable frame = round(t.bg, dp(14));
+        kb.setBackground(t.pattern == Theme.PATTERN_PAW
+                ? new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{
+                        frame, new PawDrawable(t.patternColor, dp(13), dp(50))})
+                : frame);
+        kb.setClipToOutline(true);
+
+        String[][] rows = {
+                {"1", "2", "3", "4", "5", "6", "7", "☺"},
+                {"q", "w", "e", "r", "t", "y", "u", "i"},
+                {"a", "s", "d", "f", "g", "h", "j", "k"},
+                {"⇧", "SPACE", "↵"}
+        };
+        for (int ri = 0; ri < rows.length; ri++) {
+            LinearLayout row = horizontal();
+            for (String k : rows[ri]) {
+                boolean special = k.equals("⇧") || k.equals("☺");
+                boolean enter = k.equals("↵");
+                boolean space = k.equals("SPACE");
+                String lbl = space ? (t.pattern == Theme.PATTERN_PAW ? "🐾 Tiếng Việt" : "Tiếng Việt") : k;
+                TextView key = text(lbl, ri == 0 ? 13 : (space ? 11 : textSize * 0.7f), enter ? 0xFFFFFFFF : t.text, false);
+                key.setGravity(Gravity.CENTER);
+                key.setSingleLine(true);
+                GradientDrawable top = round(enter ? t.accent : (special ? t.special : t.key), dp(radius * 0.8f));
+                key.setBackground(t.keyBackground(top, dp(radius * 0.8f), shadow, dp(1.2f)));
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT,
+                        space ? 5f : (enter || k.equals("⇧") ? 1.5f : 1f));
+                lp.setMargins(dp(2), dp(2.5f), dp(2), dp(2.5f));
+                row.addView(key, lp);
+            }
+            kb.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(ri == 0 ? 30 : 38)));
+        }
+        previewBox.addView(kb, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+    }
+
+    private View radiusRow() {
+        LinearLayout box = vertical();
+        box.setPadding(0, dp(12), 0, dp(8));
+        radiusLabel = text("", 16, TEXT, true);
+        box.addView(radiusLabel);
+        box.addView(text("0 = vuông · càng lớn càng tròn", 13, SUB, false));
+        radiusBar = new SeekBar(this);
+        radiusBar.setMax(20);
+        radiusBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
+                radiusLabel.setText("Bo góc phím: " + p + "dp");
+                if (user) {
+                    prefs.edit().putInt(Prefs.RADIUS, p).apply();
+                    buildPreview();
+                }
+            }
+            @Override public void onStartTrackingTouch(SeekBar s) {}
+            @Override public void onStopTrackingTouch(SeekBar s) {}
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, dp(10), 0, 0);
+        box.addView(radiusBar, lp);
+        syncRadius();
+        return box;
+    }
+
+    private void syncRadius() {
+        if (radiusBar == null) return;
+        Theme t = Theme.of(prefs.getString(Prefs.THEME, "dark"));
+        int r = prefs.getInt(Prefs.RADIUS, -1);
+        int v = r < 0 ? t.radius : r;
+        radiusBar.setProgress(v);
+        radiusLabel.setText("Bo góc phím: " + v + "dp");
+    }
+
+    private View sliderRow(final String title, final String unit, final String key, int def, final int min, int max) {
         LinearLayout box = vertical();
         box.setPadding(0, dp(12), 0, dp(8));
         final TextView label = text("", 16, TEXT, true);
         box.addView(label);
-        box.addView(text("Kéo để chỉnh độ cao phím cho vừa tay", 13, SUB, false));
 
-        int h = prefs.getInt(Prefs.KEY_HEIGHT, 52);
-        label.setText("Chiều cao phím: " + h + "dp");
+        int v = prefs.getInt(key, def);
+        label.setText(title + ": " + v + unit);
         SeekBar sb = new SeekBar(this);
-        sb.setMax(24);              // 40dp – 64dp
-        sb.setProgress(h - 40);
+        sb.setMax(max - min);
+        sb.setProgress(v - min);
         sb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) {
-                int v = p + 40;
-                label.setText("Chiều cao phím: " + v + "dp");
-                prefs.edit().putInt(Prefs.KEY_HEIGHT, v).apply();
+                int val = p + min;
+                label.setText(title + ": " + val + unit);
+                if (user) {
+                    prefs.edit().putInt(key, val).apply();
+                    buildPreview();
+                }
             }
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {}

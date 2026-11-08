@@ -1,5 +1,6 @@
 package com.duong.keyboard;
 
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
@@ -35,40 +36,24 @@ import java.util.List;
 
 public class KeyboardService extends InputMethodService {
 
-    // ================= Giao diện (theme) =================
-    static final class Theme {
-        final int bg, key, special, pressed, accent, text;
-
-        Theme(int bg, int key, int special, int pressed, int accent, int text) {
-            this.bg = bg; this.key = key; this.special = special;
-            this.pressed = pressed; this.accent = accent; this.text = text;
-        }
-
-        static Theme of(String name) {
-            switch (name) {
-                case "light":  return new Theme(0xFFE8EAED, 0xFFFFFFFF, 0xFFD3D7DE, 0xFFBFC4CC, 0xFF1A73E8, 0xFF202124);
-                case "ocean":  return new Theme(0xFF0F1B2D, 0xFF1D3150, 0xFF15253D, 0xFF2C4870, 0xFF29B6F6, 0xFFE3F2FD);
-                case "sakura": return new Theme(0xFFFCE4EC, 0xFFFFFFFF, 0xFFF8BBD0, 0xFFF48FB1, 0xFFE91E63, 0xFF4A2C35);
-                default:       return new Theme(0xFF1E1F24, 0xFF3A3C43, 0xFF2A2C32, 0xFF5A5D66, 0xFF3D7BFD, 0xFFFFFFFF);
-            }
-        }
-    }
-
     private static final int MODE_LETTERS = 0, MODE_SYM1 = 1, MODE_SYM2 = 2, MODE_EMOJI = 3;
 
     // ================= Bố cục phím =================
-    private static final String[] NUM_ROW = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"};
+    // Hàng số có nút emoji ở góc cuối
+    private static final String[] NUM_ROW = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "EMOJI"};
     private static final String[][] LETTERS = {
             {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
             {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
-            {"SHIFT", "z", "x", "c", "v", "b", "n", "m", "DEL"},
-            {"?123", "EMOJI", ",", "SPACE", ".", "ENTER"}
+            {"SHIFT", "z", "x", "c", "v", "b", "n", "m", "DEL"}
     };
+    private static final String[] BOTTOM = {"?123", ",", "SPACE", ".", "ENTER"};
+    // khi tắt hàng số, emoji quay về hàng dưới cùng
+    private static final String[] BOTTOM_EMOJI = {"?123", "EMOJI", ",", "SPACE", ".", "ENTER"};
     private static final String[][] SYM1 = {
-            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
+            {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "EMOJI"},
             {"@", "#", "$", "_", "&", "-", "+", "(", ")", "/"},
             {"=\\<", "*", "\"", "'", ":", ";", "!", "?", "DEL"},
-            {"ABC", "EMOJI", ",", "SPACE", ".", "ENTER"}
+            {"ABC", ",", "SPACE", ".", "ENTER"}
     };
     private static final String[][] SYM2 = {
             {"~", "`", "|", "•", "√", "π", "÷", "×", "{", "}"},
@@ -80,8 +65,8 @@ public class KeyboardService extends InputMethodService {
     private SharedPreferences prefs;
     private Theme theme;
     private final Telex telex = new Telex();
-    private boolean telexOn, telexAllowed, vibrateOn, soundOn, numberRow;
-    private int keyHeightDp;
+    private boolean telexOn, telexAllowed, vibrateOn, soundOn, numberRow, shadowOn;
+    private int keyHeightDp, radiusDp, textSizeSp;
 
     private LinearLayout root;
     private TextView spaceKey;
@@ -120,8 +105,12 @@ public class KeyboardService extends InputMethodService {
         vibrateOn = prefs.getBoolean(Prefs.VIBRATE, true);
         soundOn = prefs.getBoolean(Prefs.SOUND, false);
         numberRow = prefs.getBoolean(Prefs.NUMBER_ROW, true);
-        keyHeightDp = prefs.getInt(Prefs.KEY_HEIGHT, 52);
+        keyHeightDp = prefs.getInt(Prefs.KEY_HEIGHT, Prefs.DEF_HEIGHT);
+        textSizeSp = prefs.getInt(Prefs.TEXT_SIZE, Prefs.DEF_TEXT);
+        shadowOn = prefs.getBoolean(Prefs.SHADOW, true);
         theme = Theme.of(prefs.getString(Prefs.THEME, "dark"));
+        int r = prefs.getInt(Prefs.RADIUS, -1);
+        radiusDp = r < 0 ? theme.radius : r;
     }
 
     @Override
@@ -184,7 +173,7 @@ public class KeyboardService extends InputMethodService {
 
     // ================= Vẽ bàn phím =================
 
-    private int numRowHeight() { return (int) (dp(keyHeightDp) * 0.82f); }
+    private int numRowHeight() { return dp(Prefs.NUM_ROW_HEIGHT); }
 
     private int keyboardHeight() {
         return dp(keyHeightDp) * 4 + (numberRow ? numRowHeight() : 0);
@@ -194,8 +183,8 @@ public class KeyboardService extends InputMethodService {
         if (root == null) return;
         root.removeAllViews();
         spaceKey = null;
-        root.setBackgroundColor(theme.bg);
-        root.setPadding(dp(3), dp(5), dp(3), dp(6));
+        root.setBackground(theme.background(dp(17), dp(64)));
+        root.setPadding(dp(2), dp(5), dp(2), dp(6));
 
         if (mode == MODE_EMOJI) {
             buildEmojiPanel();
@@ -206,6 +195,7 @@ public class KeyboardService extends InputMethodService {
         if (mode == MODE_LETTERS) {
             if (numberRow) rows.add(NUM_ROW);
             rows.addAll(Arrays.asList(LETTERS));
+            rows.add(numberRow ? BOTTOM : BOTTOM_EMOJI);
         } else {
             rows.addAll(Arrays.asList(mode == MODE_SYM1 ? SYM1 : SYM2));
         }
@@ -221,9 +211,10 @@ public class KeyboardService extends InputMethodService {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER);
 
+            boolean hasEmoji = Arrays.asList(keys).contains("EMOJI");
             boolean indent = keys == LETTERS[1];
             if (indent) row.addView(spacer(0.5f));
-            for (String k : keys) row.addView(makeKey(k, keys == NUM_ROW));
+            for (String k : keys) row.addView(makeKey(k, keys == NUM_ROW, hasEmoji));
             if (indent) row.addView(spacer(0.5f));
 
             root.addView(row, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, h));
@@ -237,20 +228,22 @@ public class KeyboardService extends InputMethodService {
     }
 
     private View makeKey(final String key) {
-        return makeKey(key, false);
+        return makeKey(key, false, false);
     }
 
-    private View makeKey(final String key, boolean small) {
+    private View makeKey(final String key, boolean numRow, boolean rowHasEmoji) {
         final TextView tv = new TextView(this);
         tv.setGravity(Gravity.CENTER);
         tv.setText(label(key));
         tv.setSingleLine(true);
         tv.setEllipsize(TextUtils.TruncateAt.END);
+        tv.setIncludeFontPadding(false);
 
-        float size = 22;
-        if (small) size = 17;
+        float size = textSizeSp;
+        if (numRow) size = 17;                                   // hàng số giữ cỡ cũ
         else if (key.equals("SPACE") || key.equals("?123") || key.equals("ABC") || key.equals("=\\<")) size = 14;
         else if (key.equals("DEL") || key.equals("SHIFT") || key.equals("ENTER") || key.equals("EMOJI")) size = 20;
+        else if (mode != MODE_LETTERS) size = textSizeSp - 2;
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, size);
 
         int color = isSpecial(key) ? theme.special : theme.key;
@@ -263,19 +256,20 @@ public class KeyboardService extends InputMethodService {
         tv.setTextColor(textColor);
         if (key.equals("SPACE")) {
             spaceKey = tv;
-            tv.setAlpha(0.75f);
+            tv.setAlpha(0.8f);
         }
 
         final int normalColor = color;
         final GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(7));
+        bg.setCornerRadius(dp(radiusDp));
         bg.setColor(normalColor);
-        tv.setBackground(bg);
+        tv.setBackground(theme.keyBackground(bg, dp(radiusDp), shadowOn, dp(1.5f)));
 
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, weight(key));
-        int m = dp(3);
-        lp.setMargins(m, m, m, m);
+        float w = weight(key);
+        if (key.equals("SPACE") && rowHasEmoji) w = 4f;
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, w);
+        int mh = dp(2.5f), mv = dp(3);                            // khe hẹp -> phím rộng hơn
+        lp.setMargins(mh, mv, mh, mv);
         tv.setLayoutParams(lp);
 
         tv.setOnTouchListener(new View.OnTouchListener() {
@@ -292,6 +286,8 @@ public class KeyboardService extends InputMethodService {
                             schedule(new Runnable() { public void run() { toggleLanguage(); } });
                         } else if (key.equals(",")) {
                             schedule(new Runnable() { public void run() { showPicker(); } });
+                        } else if (key.equals("EMOJI")) {
+                            schedule(new Runnable() { public void run() { openSettings(); } });
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
@@ -316,8 +312,9 @@ public class KeyboardService extends InputMethodService {
     }
 
     private float weight(String k) {
-        if (k.equals("SPACE")) return 4f;
+        if (k.equals("SPACE")) return 5f;
         if (k.equals("EMOJI")) return 1f;
+        if (k.equals("SHIFT") || k.equals("DEL")) return 1.4f;   // nhường chỗ cho phím chữ
         if (isSpecial(k)) return 1.5f;
         return 1f;
     }
@@ -327,7 +324,10 @@ public class KeyboardService extends InputMethodService {
             case "SHIFT": return shift == 2 ? "⇪" : "⇧";
             case "DEL":   return "⌫";
             case "EMOJI": return "☺";
-            case "SPACE": return useTelex() ? "Tiếng Việt" : "English";
+            case "SPACE": {
+                String s = useTelex() ? "Tiếng Việt" : "English";
+                return theme.pattern == Theme.PATTERN_PAW ? "🐾 " + s : s;
+            }
             case "ENTER": return enterLabel();
             default:
                 return (mode == MODE_LETTERS && shift > 0) ? k.toUpperCase() : k;
@@ -564,6 +564,14 @@ public class KeyboardService extends InputMethodService {
         prefs.edit().putBoolean(Prefs.TELEX, telexOn).apply();
         if (spaceKey != null) spaceKey.setText(label("SPACE"));
         feedback("");
+    }
+
+    private void openSettings() {
+        longPressFired = true;
+        Intent i = new Intent(this, MainActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(i);
+        requestHideSelf(0);
     }
 
     private void showPicker() {
